@@ -1,0 +1,8 @@
+(jbuild_version 1)
+
+(executables
+ ((names (main))
+  (public_names (resp-server))
+  (modules (main))
+  (libraries (resp-server))
+  (package resp-server)))
