@@ -9,20 +9,22 @@ open Hiredis
 
 open Unix
 
-type t = {
+type 'a t = {
     s_ctx: Conduit_lwt_unix.ctx;
     s_mode: Conduit_lwt_unix.server;
     s_tls_config: Conduit_lwt_unix.tls_server_key option;
     s_auth: string option;
+    s_data: 'a;
 }
 
-let create ?auth ?host:(host="127.0.0.1") ?tls_config mode =
+let create ?auth ?host:(host="127.0.0.1") ?tls_config mode a =
     Conduit_lwt_unix.init ~src:host ?tls_server_key:tls_config () >|= fun ctx ->
     {
         s_ctx = ctx;
         s_mode = mode;
         s_tls_config = tls_config;
         s_auth = auth;
+        s_data = a;
     }
 
 let buffer_size = 1024
@@ -62,7 +64,7 @@ let rec aux srv authenticated callback ic oc buf r =
         aux srv authenticated callback ic oc buf r
     | Some (Array a) ->
         if authenticated then
-            (callback srv a >>= function
+            (callback srv.s_data a >>= function
             | Some res ->
                 write oc res >>= fun () ->
                 aux srv true callback ic oc buf r
