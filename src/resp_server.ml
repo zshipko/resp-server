@@ -9,89 +9,120 @@ open Hiredis
 
 open Unix
 
-type 'a t = {
-    s_ctx: Conduit_lwt_unix.ctx;
-    s_mode: Conduit_lwt_unix.server;
-    s_tls_config: Conduit_lwt_unix.tls_server_key option;
-    s_auth: string option;
-    s_data: 'a;
-}
+module type DATA = sig
+  type t
+end
 
-let create ?auth ?host:(host="127.0.0.1") ?tls_config mode a =
-    Conduit_lwt_unix.init ~src:host ?tls_server_key:tls_config () >|= fun ctx ->
-    {
-        s_ctx = ctx;
-        s_mode = mode;
-        s_tls_config = tls_config;
-        s_auth = auth;
-        s_data = a;
-    }
+module type SERVER = sig
+  type data
+  type t
 
-let buffer_size = 1024
+  val create :
+    ?auth:string ->
+    ?host:string ->
+    ?tls_config:Conduit_lwt_unix.tls_server_key ->
+    Conduit_lwt_unix.server ->
+    data ->
+    t Lwt.t
 
-let rec write oc = function
-    | Nil -> Lwt_io.write oc "*-1\r\n"
-    | Error e ->
-        Lwt_io.write oc "-" >>= fun () ->
-        Lwt_io.write oc e >>= fun () ->
-        Lwt_io.write oc "\r\n"
-    | Integer i ->
-        Lwt_io.write oc ":" >>= fun () ->
-        Lwt_io.write oc (Printf.sprintf "%Ld\r\n" i)
-    | String s ->
-        Lwt_io.write oc (Printf.sprintf "$%d\r\n" (String.length s)) >>= fun () ->
-        Lwt_io.write oc s >>= fun () ->
-        Lwt_io.write oc "\r\n"
-    | Array arr ->
-        Lwt_io.write oc (Printf.sprintf "*%d\r\n" (Array.length arr)) >>= fun () ->
-        let rec write_all arr i =
-            if i >= Array.length arr then Lwt_io.write oc "\r\n"
-            else write oc arr.(i) >>= fun () -> write_all arr (i + 1)
-        in write_all arr 0
-    | Status s ->
-        Lwt_io.write oc "+" >>= fun () ->
-        Lwt_io.write oc s >>= fun () ->
-        Lwt_io.write oc "\r\n"
+  val run :
+    ?backlog:int ->
+    ?timeout:int ->
+    ?stop:unit Lwt.t ->
+    ?on_exn:(exn -> unit) ->
+    t ->
+    (data -> Hiredis.value array -> Hiredis.value option Lwt.t) ->
+    unit Lwt.t
 
-let rec aux srv authenticated callback ic oc buf r =
-    Lwt_io.read_into ic buf 0 buffer_size >>= fun n ->
-    if n <= 0 then
-        Lwt.return_unit
-    else
-    let () = ignore (Reader.feed r (Bytes.sub buf 0 n |> Bytes.to_string)) in
-    match Reader.get_reply r with
-    | None ->
-        aux srv authenticated callback ic oc buf r
-    | Some (Array a) ->
-        if authenticated then
-            (callback srv.s_data a >>= function
-            | Some res ->
-                write oc res >>= fun () ->
-                aux srv true callback ic oc buf r
-            | None ->
-                Lwt.return_unit)
-        else begin match a with
-            | [| (String "AUTH"|String "auth"); String x |] when Some x = srv.s_auth ->
-                write oc (Status "OK") >>= fun () ->
-                aux srv true callback ic oc buf r
-            | _ ->
-                write oc (Error "NOAUTH Authentication Required") >>= fun _ ->
-                aux srv false callback ic oc buf r
-        end
-    | _ ->
-        write oc (Error "NOCOMMAND Invalid Command")
+end
 
-let rec handle srv callback flow ic oc =
-    let r = Reader.create () in
-    Lwt.catch (fun () ->
-        let buf = Bytes.make buffer_size ' ' in
-        aux srv (srv.s_auth = None) callback ic oc buf r)
-    (fun _ ->
-        Lwt_unix.yield ())
+module Make(D: DATA): SERVER with type data = D.t = struct
+  type data = D.t
 
-let run ?backlog ?timeout ?stop ?on_exn srv callback =
-    Conduit_lwt_unix.serve ?backlog ?timeout ?stop ?on_exn
-        ~ctx:srv.s_ctx ~mode:srv.s_mode (handle srv callback)
+  type t = {
+      s_ctx: Conduit_lwt_unix.ctx;
+      s_mode: Conduit_lwt_unix.server;
+      s_tls_config: Conduit_lwt_unix.tls_server_key option;
+      s_auth: string option;
+      s_data: data;
+  }
+
+  let create ?auth ?host:(host="127.0.0.1") ?tls_config mode a =
+      Conduit_lwt_unix.init ~src:host ?tls_server_key:tls_config () >|= fun ctx ->
+      {
+          s_ctx = ctx;
+          s_mode = mode;
+          s_tls_config = tls_config;
+          s_auth = auth;
+          s_data = a;
+      }
+
+  let buffer_size = 1024
+
+  let rec write oc = function
+      | Nil -> Lwt_io.write oc "*-1\r\n"
+      | Error e ->
+          Lwt_io.write oc "-" >>= fun () ->
+          Lwt_io.write oc e >>= fun () ->
+          Lwt_io.write oc "\r\n"
+      | Integer i ->
+          Lwt_io.write oc ":" >>= fun () ->
+          Lwt_io.write oc (Printf.sprintf "%Ld\r\n" i)
+      | String s ->
+          Lwt_io.write oc (Printf.sprintf "$%d\r\n" (String.length s)) >>= fun () ->
+          Lwt_io.write oc s >>= fun () ->
+          Lwt_io.write oc "\r\n"
+      | Array arr ->
+          Lwt_io.write oc (Printf.sprintf "*%d\r\n" (Array.length arr)) >>= fun () ->
+          let rec write_all arr i =
+              if i >= Array.length arr then Lwt_io.write oc "\r\n"
+              else write oc arr.(i) >>= fun () -> write_all arr (i + 1)
+          in write_all arr 0
+      | Status s ->
+          Lwt_io.write oc "+" >>= fun () ->
+          Lwt_io.write oc s >>= fun () ->
+          Lwt_io.write oc "\r\n"
+
+  let rec aux srv authenticated callback ic oc buf r =
+      Lwt_io.read_into ic buf 0 buffer_size >>= fun n ->
+      if n <= 0 then
+          Lwt.return_unit
+      else
+      let () = ignore (Reader.feed r (Bytes.sub buf 0 n |> Bytes.to_string)) in
+      match Reader.get_reply r with
+      | None ->
+          aux srv authenticated callback ic oc buf r
+      | Some (Array a) ->
+          if authenticated then
+              (callback srv.s_data a >>= function
+              | Some res ->
+                  write oc res >>= fun () ->
+                  aux srv true callback ic oc buf r
+              | None ->
+                  Lwt.return_unit)
+          else begin match a with
+              | [| (String "AUTH"|String "auth"); String x |] when Some x = srv.s_auth ->
+                  write oc (Status "OK") >>= fun () ->
+                  aux srv true callback ic oc buf r
+              | _ ->
+                  write oc (Error "NOAUTH Authentication Required") >>= fun _ ->
+                  aux srv false callback ic oc buf r
+          end
+      | _ ->
+          write oc (Error "NOCOMMAND Invalid Command")
+
+  let rec handle srv callback flow ic oc =
+      let r = Reader.create () in
+      Lwt.catch (fun () ->
+          let buf = Bytes.make buffer_size ' ' in
+          aux srv (srv.s_auth = None) callback ic oc buf r)
+      (fun _ ->
+          Lwt_unix.yield ())
+
+  let run ?backlog ?timeout ?stop ?on_exn srv callback =
+      Conduit_lwt_unix.serve ?backlog ?timeout ?stop ?on_exn
+          ~ctx:srv.s_ctx ~mode:srv.s_mode (handle srv callback)
+end
 
 (*---------------------------------------------------------------------------
    Copyright (c) 2018 Zach Shipko
