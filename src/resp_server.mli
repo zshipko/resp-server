@@ -27,7 +27,7 @@ module type SERVER = sig
     ?stop:unit Lwt.t ->
     ?on_exn:(exn -> unit) ->
     t ->
-    (Data.t -> Hiredis.value array -> Hiredis.value option Lwt.t) ->
+    (Data.t -> string -> Hiredis.value array -> Hiredis.value option Lwt.t) ->
     unit Lwt.t
 end
 

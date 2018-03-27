@@ -38,7 +38,7 @@ module type SERVER = sig
     ?stop:unit Lwt.t ->
     ?on_exn:(exn -> unit) ->
     t ->
-    (Data.t -> Hiredis.value array -> Hiredis.value option Lwt.t) ->
+    (Data.t -> string -> Hiredis.value array -> Hiredis.value option Lwt.t) ->
     unit Lwt.t
 end
 
@@ -103,6 +103,16 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
     | Some a -> Auth.check a args
     | None -> true
 
+  let split_command arr =
+      if Array.length arr < 1 then
+        "", [||]
+      else
+        let cmd = Hiredis.Value.to_string arr.(0)
+          |> String.lowercase_ascii in
+        let args = Array.sub arr 1 (Array.length arr - 1) in
+        cmd, args
+
+
   let rec aux srv authenticated callback ic oc buf r =
     Lwt_io.read_into ic buf 0 buffer_size >>= fun n ->
     if n <= 0 then
@@ -114,28 +124,22 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
         aux srv authenticated callback ic oc buf r
       | Some (Array a) ->
         if authenticated then
-          (callback srv.s_data a >>= function
+          let cmd, args = split_command a in
+          (callback srv.s_data cmd args >>= function
           | Some res ->
             write oc res >>= fun () ->
             aux srv true callback ic oc buf r
           | None ->
             Lwt.return_unit)
         else
-          let no_auth () =
-            write oc (Error "NOAUTH Authentication Required") >>= fun _ ->
-            aux srv false callback ic oc buf r in
-          let cmd = Hiredis.Value.to_string a.(0) in
-          if Array.length a <= 1 || (cmd <> "auth" && cmd <> "AUTH") then
-            no_auth ()
+          let cmd, args = split_command a in
+          let args = Array.map Hiredis.Value.to_string args in
+          if cmd = "auth" && check srv.s_auth args then
+            write oc (Status "OK") >>= fun () ->
+            aux srv true callback ic oc buf r
           else
-            let args =
-              Array.sub a 1 (Array.length a)
-              |> Array.map Hiredis.Value.to_string in
-            if check srv.s_auth args then
-              write oc (Status "OK") >>= fun () ->
-              aux srv true callback ic oc buf r
-            else
-              no_auth ()
+            write oc (Error "NOAUTH Authentication Required") >>= fun _ ->
+            aux srv false callback ic oc buf r
     | _ ->
       write oc (Error "NOCOMMAND Invalid Command")
 
