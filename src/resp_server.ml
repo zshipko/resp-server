@@ -9,23 +9,27 @@ open Hiredis
 
 open Unix
 
-module type BACKEND = sig
+module type DATA = sig
   type t
-  type auth
+end
 
-  val auth: auth option -> string array -> bool
+module type AUTH = sig
+  type t
+  val check: t -> string array -> bool
 end
 
 module type SERVER = sig
-  module Backend: BACKEND
+  module Auth: AUTH
+  module Data: DATA
+
   type t
 
   val create :
-    ?auth:Backend.auth ->
+    ?auth:Auth.t ->
     ?host:string ->
     ?tls_config:Conduit_lwt_unix.tls_server_key ->
     Conduit_lwt_unix.server ->
-    Backend.t ->
+    Data.t ->
     t Lwt.t
 
   val run :
@@ -34,29 +38,38 @@ module type SERVER = sig
     ?stop:unit Lwt.t ->
     ?on_exn:(exn -> unit) ->
     t ->
-    (Backend.t -> Hiredis.value array -> Hiredis.value option Lwt.t) ->
+    (Data.t -> Hiredis.value array -> Hiredis.value option Lwt.t) ->
     unit Lwt.t
 end
 
-module Make(B: BACKEND): SERVER with module Backend = B  = struct
-  module Backend = B
+module Auth = struct
+  module String = struct
+    type t = string
+    let check auth args =
+      Array.length args > 0 && args.(0) = auth
+  end
+end
+
+module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  = struct
+  module Auth = A
+  module Data = B
 
   type t = {
     s_ctx: Conduit_lwt_unix.ctx;
     s_mode: Conduit_lwt_unix.server;
     s_tls_config: Conduit_lwt_unix.tls_server_key option;
-    s_auth: Backend.auth option;
-    s_backend: Backend.t;
+    s_auth: Auth.t option;
+    s_data: Data.t;
   }
 
-  let create ?auth ?host:(host="127.0.0.1") ?tls_config mode backend=
+  let create ?auth ?host:(host="127.0.0.1") ?tls_config mode data=
     Conduit_lwt_unix.init ~src:host ?tls_server_key:tls_config () >|= fun ctx ->
     {
       s_ctx = ctx;
       s_mode = mode;
       s_tls_config = tls_config;
       s_auth = auth;
-      s_backend = backend;
+      s_data = data;
     }
 
   let buffer_size = 2048
@@ -85,6 +98,11 @@ module Make(B: BACKEND): SERVER with module Backend = B  = struct
     Lwt_io.write oc s >>= fun () ->
     Lwt_io.write oc "\r\n"
 
+  let check auth args =
+    match auth with
+    | Some a -> Auth.check a args
+    | None -> true
+
   let rec aux srv authenticated callback ic oc buf r =
     Lwt_io.read_into ic buf 0 buffer_size >>= fun n ->
     if n <= 0 then
@@ -96,7 +114,7 @@ module Make(B: BACKEND): SERVER with module Backend = B  = struct
         aux srv authenticated callback ic oc buf r
       | Some (Array a) ->
         if authenticated then
-          (callback srv.s_backend a >>= function
+          (callback srv.s_data a >>= function
           | Some res ->
             write oc res >>= fun () ->
             aux srv true callback ic oc buf r
@@ -113,7 +131,7 @@ module Make(B: BACKEND): SERVER with module Backend = B  = struct
             let args =
               Array.sub a 1 (Array.length a)
               |> Array.map Hiredis.Value.to_string in
-            if Backend.auth srv.s_auth args then
+            if check srv.s_auth args then
               write oc (Status "OK") >>= fun () ->
               aux srv true callback ic oc buf r
             else

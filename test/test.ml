@@ -8,12 +8,9 @@ open Lwt.Infix
 
 module Unit = struct
   type t = unit
-  type auth = string
-
-  let auth a args = true
 end
 
-module Server = Resp_server.Make(Unit)
+module Server = Resp_server.Make(Resp_server.Auth.String)(Unit)
 
 let main =
     Server.create (`TCP (`Port 1234)) () >>= fun server ->
