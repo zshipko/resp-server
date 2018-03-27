@@ -8,6 +8,9 @@ open Lwt.Infix
 
 module Unit = struct
   type t = unit
+  type auth = string
+
+  let auth a args = true
 end
 
 module Server = Resp_server.Make(Unit)

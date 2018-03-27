@@ -1,17 +1,21 @@
-module type DATA = sig
+module type BACKEND = sig
   type t
+  type auth
+
+  val auth: auth option -> string array -> bool
 end
 
 module type SERVER = sig
-  type data
+  module Backend: BACKEND
+
   type t
 
   val create :
-    ?auth:string ->
+    ?auth:Backend.auth ->
     ?host:string ->
     ?tls_config:Conduit_lwt_unix.tls_server_key ->
     Conduit_lwt_unix.server ->
-    data ->
+    Backend.t ->
     t Lwt.t
 
   val run :
@@ -20,8 +24,8 @@ module type SERVER = sig
     ?stop:unit Lwt.t ->
     ?on_exn:(exn -> unit) ->
     t ->
-    (data -> Hiredis.value array -> Hiredis.value option Lwt.t) ->
+    (Backend.t -> Hiredis.value array -> Hiredis.value option Lwt.t) ->
     unit Lwt.t
 end
 
-module Make(D: DATA) : SERVER with type data = D.t
+module Make(B: BACKEND) : SERVER with module Backend = B
