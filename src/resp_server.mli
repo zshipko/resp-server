@@ -35,4 +35,4 @@ module Auth: sig
   module String: AUTH
 end
 
-module Make(A: AUTH)(D: DATA) : SERVER with module Data = D and module Auth = A
+module Make(A: AUTH)(D: DATA): SERVER with module Data = D and module Auth = A
