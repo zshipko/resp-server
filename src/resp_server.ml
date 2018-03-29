@@ -11,6 +11,8 @@ open Unix
 
 module type DATA = sig
   type t
+  type client
+  val new_client: unit -> client
 end
 
 module type AUTH = sig
@@ -38,7 +40,7 @@ module type SERVER = sig
     ?stop:unit Lwt.t ->
     ?on_exn:(exn -> unit) ->
     t ->
-    (Data.t -> string -> Hiredis.value array -> Hiredis.value option Lwt.t) ->
+    (Data.t -> Data.client -> string -> Hiredis.value array -> Hiredis.value option Lwt.t) ->
     unit Lwt.t
 end
 
@@ -60,6 +62,14 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
     s_tls_config: Conduit_lwt_unix.tls_server_key option;
     s_auth: Auth.t option;
     s_data: Data.t;
+  }
+
+  type client = {
+    c_in: Lwt_io.input_channel;
+    c_out: Lwt_io.output_channel;
+    c_buf: bytes;
+    c_reader: Hiredis.Reader.t;
+    c_data: B.client;
   }
 
   let create ?auth ?host:(host="127.0.0.1") ?tls_config mode data=
@@ -113,41 +123,49 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
         cmd, args
 
 
-  let rec aux srv authenticated callback ic oc buf r =
-    Lwt_io.read_into ic buf 0 buffer_size >>= fun n ->
+  let rec aux srv authenticated callback client =
+    Lwt_io.read_into client.c_in client.c_buf 0 buffer_size >>= fun n ->
     if n <= 0 then
       Lwt.return_unit
     else
-      let () = ignore (Reader.feed r (Bytes.sub buf 0 n |> Bytes.to_string)) in
-      match Reader.get_reply r with
+      let s = (Bytes.sub client.c_buf 0 n |> Bytes.to_string) in
+      let () = ignore (Reader.feed client.c_reader s) in
+      match Reader.get_reply client.c_reader with
       | None ->
-        aux srv authenticated callback ic oc buf r
+        aux srv authenticated callback client
       | Some (Array a) ->
         if authenticated then
           let cmd, args = split_command a in
-          (callback srv.s_data cmd args >>= function
+          (callback srv.s_data client.c_data cmd args >>= function
           | Some res ->
-            write oc res >>= fun () ->
-            aux srv true callback ic oc buf r
+            write client.c_out res >>= fun () ->
+            aux srv true callback client
           | None ->
             Lwt.return_unit)
         else
           let cmd, args = split_command a in
           let args = Array.map Hiredis.Value.to_string args in
           if cmd = "auth" && check srv.s_auth args then
-            write oc (Status "OK") >>= fun () ->
-            aux srv true callback ic oc buf r
+            write client.c_out (Status "OK") >>= fun () ->
+            aux srv true callback client
           else
-            write oc (Error "NOAUTH Authentication Required") >>= fun _ ->
-            aux srv false callback ic oc buf r
+            write client.c_out (Error "NOAUTH Authentication Required") >>= fun _ ->
+            aux srv false callback client
     | _ ->
-      write oc (Error "NOCOMMAND Invalid Command")
+      write client.c_out (Error "NOCOMMAND Invalid Command")
 
   let rec handle srv callback flow ic oc =
     let r = Reader.create () in
+    let buf = Bytes.make buffer_size ' ' in
+    let client = {
+      c_in = ic;
+      c_out = oc;
+      c_buf = buf;
+      c_reader = r;
+      c_data = B.new_client ();
+    } in
     Lwt.catch (fun () ->
-      let buf = Bytes.make buffer_size ' ' in
-      aux srv (srv.s_auth = None) callback ic oc buf r)
+      aux srv (srv.s_auth = None) callback client)
     (fun _ ->
       Lwt_unix.yield ())
 

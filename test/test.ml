@@ -8,13 +8,15 @@ open Lwt.Infix
 
 module Unit = struct
   type t = unit
+  type client = unit
+  let new_client () = ()
 end
 
 module Server = Resp_server.Make(Resp_server.Auth.String)(Unit)
 
 let main =
     Server.create (`TCP (`Port 1234)) () >>= fun server ->
-    Server.run server (fun () cmd args ->
+    Server.run server (fun () () cmd args ->
       Lwt.return_some (Hiredis.Value.int 9999))
 
 let () = Lwt_main.run main
