@@ -1,8 +1,8 @@
-resp-server — A library for servers that speaks RESP
+resp-server — An OCaml library for building servers that speak RESP
 -------------------------------------------------------------------------------
 %%VERSION%%
 
-resp-server is a library for building servers in OCaml that communicate using the Redis serialization protocol
+resp-server is an OCaml library for building servers that communicate using the Redis serialization protocol.
 
 resp-server is distributed under the ISC license.
 
@@ -23,7 +23,7 @@ The documentation and API reference is generated from the source
 interfaces. It can be consulted [online][doc] or via `odig doc
 resp-server`.
 
-[doc]: https://github.com/zshipko/resp-server/doc
+[doc]: https://github.com/zshipko/resp-server
 
 ## Tests
 
