@@ -100,7 +100,7 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
     | Array arr ->
       Lwt_io.write oc (Printf.sprintf "*%d\r\n" (Array.length arr)) >>= fun () ->
       let rec write_all arr i =
-        if i >= Array.length arr then Lwt_io.write oc "\r\n"
+        if i >= Array.length arr then Lwt.return_unit
         else write oc arr.(i) >>= fun () -> write_all arr (i + 1)
       in write_all arr 0
     | Status s ->
