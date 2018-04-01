@@ -30,6 +30,7 @@ module type SERVER = sig
 
   val add_command: t -> string -> command -> unit
   val del_command: t -> string -> unit
+  val get_command: t -> string -> command option
 
   val create:
     ?auth: Auth.t ->
@@ -77,6 +78,9 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
 
   let del_command t name =
     Hashtbl.remove t.s_cmd name
+
+  let get_command t name =
+    Hashtbl.find_opt t.s_cmd name
 
   type client = {
     c_in: Lwt_io.input_channel;
