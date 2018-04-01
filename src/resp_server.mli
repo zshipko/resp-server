@@ -15,21 +15,26 @@ module type SERVER = sig
 
   type t
 
+  type command = Data.t -> Data.client -> string -> Hiredis.value array -> Hiredis.value option Lwt.t
+
+  val add_command: t -> string -> command -> unit
+  val del_command: t -> string -> unit
+
   val create :
-    ?auth:Auth.t ->
-    ?host:string ->
-    ?tls_config:Conduit_lwt_unix.tls_server_key ->
+    ?auth: Auth.t ->
+    ?commands: (string * command) list ->
+    ?host: string ->
+    ?tls_config: Conduit_lwt_unix.tls_server_key ->
     Conduit_lwt_unix.server ->
     Data.t ->
     t Lwt.t
 
   val run :
-    ?backlog:int ->
-    ?timeout:int ->
-    ?stop:unit Lwt.t ->
-    ?on_exn:(exn -> unit) ->
+    ?backlog: int ->
+    ?timeout: int ->
+    ?stop: unit Lwt.t ->
+    ?on_exn: (exn -> unit) ->
     t ->
-    (Data.t -> Data.client -> string -> Hiredis.value array -> Hiredis.value option Lwt.t) ->
     unit Lwt.t
 end
 

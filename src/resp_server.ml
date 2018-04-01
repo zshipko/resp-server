@@ -26,21 +26,26 @@ module type SERVER = sig
 
   type t
 
-  val create :
-    ?auth:Auth.t ->
-    ?host:string ->
-    ?tls_config:Conduit_lwt_unix.tls_server_key ->
+  type command = Data.t -> Data.client -> string -> Hiredis.value array -> Hiredis.value option Lwt.t
+
+  val add_command: t -> string -> command -> unit
+  val del_command: t -> string -> unit
+
+  val create:
+    ?auth: Auth.t ->
+    ?commands: (string * command) list ->
+    ?host: string ->
+    ?tls_config: Conduit_lwt_unix.tls_server_key ->
     Conduit_lwt_unix.server ->
     Data.t ->
     t Lwt.t
 
-  val run :
-    ?backlog:int ->
-    ?timeout:int ->
-    ?stop:unit Lwt.t ->
-    ?on_exn:(exn -> unit) ->
+  val run:
+    ?backlog: int ->
+    ?timeout: int ->
+    ?stop: unit Lwt.t ->
+    ?on_exn: (exn -> unit) ->
     t ->
-    (Data.t -> Data.client -> string -> Hiredis.value array -> Hiredis.value option Lwt.t) ->
     unit Lwt.t
 end
 
@@ -56,13 +61,22 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
   module Auth = A
   module Data = B
 
+  type command = Data.t -> Data.client -> string -> Hiredis.value array -> Hiredis.value option Lwt.t
+
   type t = {
     s_ctx: Conduit_lwt_unix.ctx;
     s_mode: Conduit_lwt_unix.server;
     s_tls_config: Conduit_lwt_unix.tls_server_key option;
     s_auth: Auth.t option;
+    s_cmd: (string, command) Hashtbl.t;
     s_data: Data.t;
   }
+
+  let add_command t name f =
+    Hashtbl.replace t.s_cmd name f
+
+  let del_command t name =
+    Hashtbl.remove t.s_cmd name
 
   type client = {
     c_in: Lwt_io.input_channel;
@@ -72,13 +86,20 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
     c_data: B.client;
   }
 
-  let create ?auth ?host:(host="127.0.0.1") ?tls_config mode data=
+  let create ?auth ?commands ?host:(host="127.0.0.1") ?tls_config mode data =
     Conduit_lwt_unix.init ~src:host ?tls_server_key:tls_config () >|= fun ctx ->
+    let commands = match commands with
+    | Some s ->
+        let ht = Hashtbl.create (List.length s) in
+        List.iter (fun (k, v) -> Hashtbl.replace ht k v) s;
+        ht
+    | None -> Hashtbl.create 8 in
     {
       s_ctx = ctx;
       s_mode = mode;
       s_tls_config = tls_config;
       s_auth = auth;
+      s_cmd = commands;
       s_data = data;
     }
 
@@ -123,7 +144,7 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
         cmd, args
 
 
-  let rec aux srv authenticated callback client =
+  let rec aux srv authenticated client =
     Lwt_io.read_into client.c_in client.c_buf 0 buffer_size >>= fun n ->
     if n <= 0 then
       Lwt.return_unit
@@ -132,29 +153,34 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
       let () = ignore (Reader.feed client.c_reader s) in
       match Reader.get_reply client.c_reader with
       | None ->
-        aux srv authenticated callback client
+        aux srv authenticated client
       | Some (Array a) ->
         if authenticated then
           let cmd, args = split_command a in
-          (callback srv.s_data client.c_data cmd args >>= function
-          | Some res ->
-            write client.c_out res >>= fun () ->
-            aux srv true callback client
-          | None ->
-            Lwt.return_unit)
+          match Hashtbl.find_opt srv.s_cmd cmd with
+          | Some f ->
+            begin
+              f srv.s_data client.c_data cmd args >>= fun r ->
+              match r with
+              | Some res ->
+                  write client.c_out res >>= fun () ->
+                  aux srv true client
+              | None -> Lwt.return_unit
+            end
+          | None -> write client.c_out (Error "NOCOMMAND Invalid command")
         else
           let cmd, args = split_command a in
           let args = Array.map Hiredis.Value.to_string args in
           if cmd = "auth" && check srv.s_auth args then
             write client.c_out (Status "OK") >>= fun () ->
-            aux srv true callback client
+            aux srv true client
           else
             write client.c_out (Error "NOAUTH Authentication Required") >>= fun _ ->
-            aux srv false callback client
+            aux srv false client
     | _ ->
       write client.c_out (Error "NOCOMMAND Invalid Command")
 
-  let rec handle srv callback flow ic oc =
+  let rec handle srv flow ic oc =
     let r = Reader.create () in
     let buf = Bytes.make buffer_size ' ' in
     let client = {
@@ -165,13 +191,13 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
       c_data = B.new_client ();
     } in
     Lwt.catch (fun () ->
-      aux srv (srv.s_auth = None) callback client)
+      aux srv (srv.s_auth = None) client)
     (fun _ ->
       Lwt_unix.yield ())
 
-  let run ?backlog ?timeout ?stop ?on_exn srv callback =
+  let run ?backlog ?timeout ?stop ?on_exn srv =
     Conduit_lwt_unix.serve ?backlog ?timeout ?stop ?on_exn
-      ~ctx:srv.s_ctx ~mode:srv.s_mode (handle srv callback)
+      ~ctx:srv.s_ctx ~mode:srv.s_mode (handle srv)
 end
 
 (*---------------------------------------------------------------------------

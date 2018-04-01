@@ -14,10 +14,16 @@ end
 
 module Server = Resp_server.Make(Resp_server.Auth.String)(Unit)
 
+let get srv cli _ args =
+  Lwt.return_some (Hiredis.Value.int 9999)
+
+let commands = [
+  "get", get
+]
+
 let main =
-    Server.create (`TCP (`Port 1234)) () >>= fun server ->
-    Server.run server (fun () () cmd args ->
-      Lwt.return_some (Hiredis.Value.int 9999))
+    Server.create ~commands (`TCP (`Port 1234)) () >>= fun server ->
+    Server.run  server
 
 let () = Lwt_main.run main
 
