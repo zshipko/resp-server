@@ -171,7 +171,13 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
                   aux srv true client
               | None -> Lwt.return_unit
             end
-          | None -> write client.c_out (Error "NOCOMMAND Invalid command")
+          | None ->
+            (if cmd = "command" then
+              let commands = Hashtbl.fold (fun k v dst -> Hiredis.Value.string k :: dst) srv.s_cmd [] in
+              write client.c_out (Hiredis.Value.array (Array.of_list commands))
+            else
+              write client.c_out (Error "NOCOMMAND Invalid command")) >>= fun _ ->
+              aux srv true client
         else
           let cmd, args = split_command a in
           let args = Array.map Hiredis.Value.to_string args in
