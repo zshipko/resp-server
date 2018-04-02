@@ -6,26 +6,70 @@
 
 open Lwt.Infix
 
-module Unit = struct
-  type t = unit
+module Data = struct
+  type t = (string, string) Hashtbl.t
   type client = unit
   let new_client () = ()
 end
 
-module Server = Resp_server.Make(Resp_server.Auth.String)(Unit)
+module Server = Resp_server.Make(Resp_server.Auth.String)(Data)
 
-let get srv cli _ args =
-  Lwt.return_some (Hiredis.Value.int 9999)
+let get (srv: Data.t) (cli: Data.client) (_: string) (args: Hiredis.value array) =
+  begin match args with
+  | [| String key |] ->
+    begin
+      match Hashtbl.find_opt srv key with
+      | Some v -> Hiredis.Value.string v
+      | None -> Hiredis.Value.nil
+    end
+  | _ -> Hiredis.Value.error "Invalid arguments"
+  end
+  |> Lwt.return_some
+
+let del (srv: Data.t) (cli: Data.client) (_: string) (args: Hiredis.value array) =
+  begin match args with
+  | [| String key |] ->
+      Hashtbl.remove srv key;
+      Hiredis.Value.status "OK"
+  | _ -> Hiredis.Value.error "Invalid arguments"
+  end
+  |> Lwt.return_some
+
+let set (srv: Data.t) (cli: Data.client) (_: string) (args: Hiredis.value array) =
+  begin match args with
+  | [| String key; String value |] ->
+      Hashtbl.replace srv key value;
+      Hiredis.Value.status "OK"
+  | _ -> Hiredis.Value.error "Invalid arguments"
+  end
+  |> Lwt.return_some
+
+let done_ (srv: Data.t) (cli: Data.client) (_: string) (args: Hiredis.value array) =
+  exit 0
 
 let commands = [
-  "get", get
+  "get", get;
+  "set", set;
+  "del", del;
+  "done", done_;
 ]
 
-let main =
-    Server.create ~commands (`TCP (`Port 1234)) () >>= fun server ->
-    Server.run  server
-
-let () = Lwt_main.run main
+let () =
+  match Lwt_unix.fork () with
+  | n when n < 0 -> print_endline "Fork error"; exit 1
+  | 0 ->
+      Unix.sleep 1;
+      let cli = Hiredis.Client.connect ~port:1234 "127.0.0.1" in
+      let run = Hiredis.Client.run cli in
+      assert (run [| "SET"; "abc"; "123" |] = Hiredis.Value.status "OK");
+      assert (run [| "GET"; "abc" |] = Hiredis.Value.string "123");
+      ignore (run [| "DONE" |]);
+      exit 0
+  | n ->
+      let ht = Hashtbl.create 16 in
+      Lwt_main.run (
+        Server.create ~commands (`TCP (`Port 1234)) ht >>= fun server ->
+          Server.run server)
 
 (*---------------------------------------------------------------------------
    Copyright (c) 2018 Zach Shipko
