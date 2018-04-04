@@ -45,6 +45,7 @@ let set (srv: Data.t) (cli: Data.client) (_: string) (args: Hiredis.value array)
   |> Lwt.return_some
 
 let done_ (srv: Data.t) (cli: Data.client) (_: string) (args: Hiredis.value array) =
+  print_endline "Test complete, closing server";
   exit 0
 
 let commands = [

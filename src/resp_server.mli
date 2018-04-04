@@ -23,6 +23,7 @@ module type SERVER = sig
 
   val create :
     ?auth: Auth.t ->
+    ?default: command ->
     ?commands: (string * command) list ->
     ?host: string ->
     ?tls_config: Conduit_lwt_unix.tls_server_key ->

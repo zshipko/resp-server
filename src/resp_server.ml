@@ -34,6 +34,7 @@ module type SERVER = sig
 
   val create:
     ?auth: Auth.t ->
+    ?default: command ->
     ?commands: (string * command) list ->
     ?host: string ->
     ?tls_config: Conduit_lwt_unix.tls_server_key ->
@@ -71,6 +72,7 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
     s_auth: Auth.t option;
     s_cmd: (string, command) Hashtbl.t;
     s_data: Data.t;
+    s_default: command option;
   }
 
   let add_command t name f =
@@ -90,7 +92,7 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
     c_data: B.client;
   }
 
-  let create ?auth ?commands ?host:(host="127.0.0.1") ?tls_config mode data =
+  let create ?auth ?default ?commands ?host:(host="127.0.0.1") ?tls_config mode data =
     Conduit_lwt_unix.init ~src:host ?tls_server_key:tls_config () >|= fun ctx ->
     let commands = match commands with
     | Some s ->
@@ -105,6 +107,7 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
       s_auth = auth;
       s_cmd = commands;
       s_data = data;
+      s_default = default;
     }
 
   let buffer_size = 2048
@@ -147,6 +150,16 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
         let args = Array.sub arr 1 (Array.length arr - 1) in
         cmd, args
 
+  let determine_command srv cmd =
+    match Hashtbl.find_opt srv.s_cmd cmd with
+    | Some f -> Some f
+    | None ->
+      begin
+        match srv.s_default with
+        | Some f -> Some f
+        | None -> None
+      end
+
 
   let rec aux srv authenticated client =
     Lwt_io.read_into client.c_in client.c_buf 0 buffer_size >>= fun n ->
@@ -159,9 +172,9 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
       | None ->
         aux srv authenticated client
       | Some (Array a) ->
+        let cmd, args = split_command a in
         if authenticated then
-          let cmd, args = split_command a in
-          match Hashtbl.find_opt srv.s_cmd cmd with
+          match determine_command srv cmd with
           | Some f ->
             begin
               f srv.s_data client.c_data cmd args >>= fun r ->
@@ -179,7 +192,6 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
               write client.c_out (Error "NOCOMMAND Invalid command")) >>= fun _ ->
               aux srv true client
         else
-          let cmd, args = split_command a in
           let args = Array.map Hiredis.Value.to_string args in
           if cmd = "auth" && check srv.s_auth args then
             write client.c_out (Status "OK") >>= fun () ->
