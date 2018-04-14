@@ -69,7 +69,7 @@ module Auth = struct
       if Array.length args < 2 then false
       else
         try
-          Hashtbl.find auth args.(0) = args.(0)
+          Hashtbl.find auth args.(0) = args.(1)
         with Not_found -> false
   end
 end
