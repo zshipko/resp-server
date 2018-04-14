@@ -68,12 +68,11 @@ let modify_value db args f =
         Server.ok)
     | _ -> Server.error "Invalid arguments"
 
-let _incr db cli cmd args =
+let _incr db _cli _cmd args =
     modify_value db args (fun a -> a + 1)
 
-let _decr srv db cmd args =
+let _decr srv db _cli _cmd args =
     modify_value db args (fun a -> a - 1)
-
 
 let commands = [
     "incr", _incr;
