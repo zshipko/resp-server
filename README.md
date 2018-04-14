@@ -86,7 +86,8 @@ let commands = [
 ```ocaml
 let main =
     let db = Hashtbl.create 16 in
-    let srv = Server.create ~commands (`TCP (`Port 1234)) db in
+    let auth = "password" in
+    let srv = Server.create ~auth ~commands(`TCP (`Port 1234)) db in
     Server.run srv
 
 let () = Lwt.main.run main
