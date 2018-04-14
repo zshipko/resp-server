@@ -62,15 +62,15 @@ module Auth = struct
       Array.length args > 0 && args.(0) = auth
   end
 
-  module MultiUser = struct
+  module User = struct
     type t = (string, string) Hashtbl.t
 
     let check auth args =
       if Array.length args < 2 then false
       else
-        try
-          Hashtbl.find auth args.(0) = args.(1)
-        with Not_found -> false
+        match Hashtbl.find_opt auth args.(0) with
+        | Some p -> p = args.(1)
+        | None -> false
   end
 end
 

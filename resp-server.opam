@@ -17,8 +17,6 @@ depends:
     "conduit-lwt-unix" {>= "1.0"}
 ]
 
-depopts: []
-
 build:
 [
     ["jbuilder" "build"]
