@@ -1,5 +1,4 @@
-(** The BACKEND module type defines the minimum needed interface to
- * create a new RESP server *)
+(** BACKEND defines the minimum needed interface to create a new RESP server *)
 module type BACKEND = sig
   (** The server request context type *)
   type t
@@ -11,22 +10,29 @@ module type BACKEND = sig
   val new_client: t -> client
 end
 
-(** The AUTH module type defines the interface for authenticating a client *)
+(** AUTH defines the interface for authenticating a client *)
 module type AUTH = sig
   (** Authentication type *)
   type t
 
-  (** Used to determine if the client has passed the correct
+  (** Used to determine if the client has passed the valid
    *  authentication to the server *)
   val check: t -> string array -> bool
 end
 
+(** SERVER defines the interface for a server *)
 module type SERVER = sig
-  (** Authentication type *)
+  (** Authentication mode *)
   module Auth: AUTH
 
-  (** Backend type *)
+  (** Backend mode *)
   module Backend: BACKEND
+
+  (** Respond with OK simple string *)
+  val ok: Hiredis.value option Lwt.t
+
+  (** Respond with an error message *)
+  val error: string -> Hiredis.value option Lwt.t
 
   (** Underlying server type, this is typically not available to
    * consumers of the API *)
@@ -70,9 +76,11 @@ module type SERVER = sig
     unit Lwt.t
 end
 
+(** General authentication modes *)
 module Auth: sig
   (** Authentication using a passphrase *)
   module String: AUTH
 end
 
+(** Construct a new SERVER with given authentication mode and backend *)
 module Make(A: AUTH)(D: BACKEND): SERVER with module Backend = D and module Auth = A

@@ -26,6 +26,9 @@ module type SERVER = sig
 
   type t
 
+  val ok: Hiredis.value option Lwt.t
+  val error: string -> Hiredis.value option Lwt.t
+
   type command =
     Backend.t ->
     Backend.client ->
@@ -76,14 +79,10 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
     s_default: command option;
   }
 
-  let add_command t name f =
-    Hashtbl.replace t.s_cmd name f
+  let error msg =
+    Lwt.return_some (Value.error ("ERR " ^ msg))
 
-  let del_command t name =
-    Hashtbl.remove t.s_cmd name
-
-  let get_command t name =
-    Hashtbl.find_opt t.s_cmd name
+  let ok = Lwt.return_some (Value.status "OK")
 
   type client = {
     c_in: Lwt_io.input_channel;
