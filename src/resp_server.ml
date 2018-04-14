@@ -147,9 +147,9 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
         else write oc arr.(i) >>= fun () -> write_all arr (i + 1)
       in write_all arr 0
     | Status s ->
-    Lwt_io.write oc "+" >>= fun () ->
-    Lwt_io.write oc s >>= fun () ->
-    Lwt_io.write oc "\r\n"
+      Lwt_io.write oc "+" >>= fun () ->
+      Lwt_io.write oc s >>= fun () ->
+      Lwt_io.write oc "\r\n"
 
   let check auth args =
     match auth with
@@ -157,13 +157,13 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
     | None -> true
 
   let split_command arr =
-      if Array.length arr < 1 then
-        "", [||]
-      else
+      try
         let cmd = Hiredis.Value.to_string arr.(0)
           |> String.lowercase_ascii in
         let args = Array.sub arr 1 (Array.length arr - 1) in
         cmd, args
+      with
+        | Hiredis.Value.Invalid_value -> "", [||]
 
   let determine_command srv cmd =
     match Hashtbl.find_opt srv.s_cmd cmd with
@@ -175,7 +175,6 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
         | None -> None
       end
 
-
   let rec aux srv authenticated client =
     Lwt_io.read_into client.c_in client.c_buf 0 buffer_size >>= fun n ->
     if n <= 0 then
@@ -186,36 +185,45 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
       match Reader.get_reply client.c_reader with
       | None ->
         aux srv authenticated client
-      | Some (Array a) ->
+      | Some (Array a) when Array.length a > 0 ->
         let cmd, args = split_command a in
         if authenticated then
-          match determine_command srv cmd with
-          | Some f ->
-            begin
-              f srv.s_data client.c_data cmd args >>= fun r ->
-              match r with
-              | Some res ->
-                  write client.c_out res >>= fun () ->
-                  aux srv true client
-              | None -> Lwt.return_unit
-            end
-          | None ->
-            (if cmd = "command" then
-              let commands = Hashtbl.fold (fun k v dst -> Hiredis.Value.string k :: dst) srv.s_cmd [] in
-              write client.c_out (Hiredis.Value.array (Array.of_list commands))
-            else
-              write client.c_out (Error "NOCOMMAND Invalid command")) >>= fun _ ->
-              aux srv true client
+          when_authenticated srv client cmd args
         else
-          let args = Array.map Hiredis.Value.to_string args in
-          if cmd = "auth" && check srv.s_auth args then
-            write client.c_out (Status "OK") >>= fun () ->
-            aux srv true client
-          else
-            write client.c_out (Error "NOAUTH Authentication Required") >>= fun _ ->
-            aux srv false client
+          when_not_authenticated srv client cmd args
     | _ ->
       write client.c_out (Error "NOCOMMAND Invalid Command")
+
+  and when_authenticated srv client cmd args =
+    match determine_command srv cmd with
+    | Some f ->
+      begin
+        f srv.s_data client.c_data cmd args >>= fun r ->
+        match r with
+        | Some res ->
+            write client.c_out res >>= fun () ->
+            aux srv true client
+        | None -> Lwt.return_unit
+      end
+    | None ->
+      (if cmd = "command" then
+        let commands = Hashtbl.fold (fun k v dst -> Hiredis.Value.string k :: dst) srv.s_cmd [] in
+        write client.c_out (Hiredis.Value.array (Array.of_list commands))
+      else
+        write client.c_out (Error "NOCOMMAND Invalid command")) >>= fun _ ->
+        aux srv true client
+
+    and when_not_authenticated srv client cmd args =
+      let args =
+        try
+          Array.map Hiredis.Value.to_string args
+        with Hiredis.Value.Invalid_value -> [||] in
+      if cmd = "auth" && check srv.s_auth args then
+        write client.c_out (Status "OK") >>= fun () ->
+        aux srv true client
+      else
+        write client.c_out (Error "NOAUTH Authentication Required") >>= fun _ ->
+        aux srv false client
 
   let rec handle srv flow ic oc =
     let r = Reader.create () in
@@ -227,10 +235,9 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
       c_reader = r;
       c_data = B.new_client srv.s_data;
     } in
-    Lwt.catch (fun () ->
-      aux srv (srv.s_auth = None) client)
-    (fun _ ->
-      Lwt_unix.yield ())
+    Lwt.catch
+      (fun () -> aux srv (srv.s_auth = None) client)
+      (fun _ -> Lwt_unix.yield ())
 
   let run ?backlog ?timeout ?stop ?on_exn srv =
     Conduit_lwt_unix.serve ?backlog ?timeout ?stop ?on_exn
