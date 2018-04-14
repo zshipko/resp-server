@@ -33,10 +33,6 @@ module type SERVER = sig
     Hiredis.value array ->
     Hiredis.value option Lwt.t
 
-  val add_command: t -> string -> command -> unit
-  val del_command: t -> string -> unit
-  val get_command: t -> string -> command option
-
   val create:
     ?auth: Auth.t ->
     ?default: command ->
