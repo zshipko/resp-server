@@ -71,7 +71,7 @@ let modify_value db args f =
 let _incr db _cli _cmd args =
     modify_value db args (fun a -> a + 1)
 
-let _decr srv db _cli _cmd args =
+let _decr db _cli _cmd args =
     modify_value db args (fun a -> a - 1)
 
 let commands = [
