@@ -6,15 +6,15 @@
 
 open Lwt.Infix
 
-module Data = struct
+module Backend = struct
   type t = (string, string) Hashtbl.t
   type client = unit
   let new_client () = ()
 end
 
-module Server = Resp_server.Make(Resp_server.Auth.String)(Data)
+module Server = Resp_server.Make(Resp_server.Auth.String)(Backend)
 
-let get (srv: Data.t) (cli: Data.client) (_: string) (args: Hiredis.value array) =
+let get (srv: Backend.t) (cli: Backend.client) (_: string) (args: Hiredis.value array) =
   begin match args with
   | [| String key |] ->
     begin
@@ -26,7 +26,7 @@ let get (srv: Data.t) (cli: Data.client) (_: string) (args: Hiredis.value array)
   end
   |> Lwt.return_some
 
-let del (srv: Data.t) (cli: Data.client) (_: string) (args: Hiredis.value array) =
+let del (srv: Backend.t) (cli: Backend.client) (_: string) (args: Hiredis.value array) =
   begin match args with
   | [| String key |] ->
       Hashtbl.remove srv key;
@@ -35,7 +35,7 @@ let del (srv: Data.t) (cli: Data.client) (_: string) (args: Hiredis.value array)
   end
   |> Lwt.return_some
 
-let set (srv: Data.t) (cli: Data.client) (_: string) (args: Hiredis.value array) =
+let set (srv: Backend.t) (cli: Backend.client) (_: string) (args: Hiredis.value array) =
   begin match args with
   | [| String key; String value |] ->
       Hashtbl.replace srv key value;
@@ -44,7 +44,7 @@ let set (srv: Data.t) (cli: Data.client) (_: string) (args: Hiredis.value array)
   end
   |> Lwt.return_some
 
-let done_ (srv: Data.t) (cli: Data.client) (_: string) (args: Hiredis.value array) =
+let done_ (srv: Backend.t) (cli: Backend.client) (_: string) (args: Hiredis.value array) =
   print_endline "Test complete, closing server";
   exit 0
 

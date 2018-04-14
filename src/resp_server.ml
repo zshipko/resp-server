@@ -9,7 +9,7 @@ open Hiredis
 
 open Unix
 
-module type DATA = sig
+module type BACKEND = sig
   type t
   type client
   val new_client: unit -> client
@@ -22,11 +22,11 @@ end
 
 module type SERVER = sig
   module Auth: AUTH
-  module Data: DATA
+  module Backend: BACKEND
 
   type t
 
-  type command = Data.t -> Data.client -> string -> Hiredis.value array -> Hiredis.value option Lwt.t
+  type command = Backend.t -> Backend.client -> string -> Hiredis.value array -> Hiredis.value option Lwt.t
 
   val add_command: t -> string -> command -> unit
   val del_command: t -> string -> unit
@@ -39,7 +39,7 @@ module type SERVER = sig
     ?host: string ->
     ?tls_config: Conduit_lwt_unix.tls_server_key ->
     Conduit_lwt_unix.server ->
-    Data.t ->
+    Backend.t ->
     t Lwt.t
 
   val run:
@@ -59,11 +59,11 @@ module Auth = struct
   end
 end
 
-module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  = struct
+module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth = A  = struct
   module Auth = A
-  module Data = B
+  module Backend = B
 
-  type command = Data.t -> Data.client -> string -> Hiredis.value array -> Hiredis.value option Lwt.t
+  type command = Backend.t -> Backend.client -> string -> Hiredis.value array -> Hiredis.value option Lwt.t
 
   type t = {
     s_ctx: Conduit_lwt_unix.ctx;
@@ -71,7 +71,7 @@ module Make(A: AUTH)(B: DATA): SERVER with module Data = B and module Auth = A  
     s_tls_config: Conduit_lwt_unix.tls_server_key option;
     s_auth: Auth.t option;
     s_cmd: (string, command) Hashtbl.t;
-    s_data: Data.t;
+    s_data: Backend.t;
     s_default: command option;
   }
 
@@ -233,7 +233,7 @@ end
    WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
    MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
    ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-   WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+   WHATSOEVER RESULTING FROM LOSS OF USE, BACKEND OR PROFITS, WHETHER IN AN
    ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
    OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
   ---------------------------------------------------------------------------*)

@@ -17,13 +17,12 @@ resp-server can be installed with `opam`:
 If you don't use `opam` consult the [`opam`](opam) file for build
 instructions.
 
-## Documentation
+## Getting started
 
-The documentation and API reference is generated from the source
-interfaces. It can be consulted [online][doc] or via `odig doc
-resp-server`.
+To create a new server using `resp-server` you need to define a few modules.
 
-[doc]: https://github.com/zshipko/resp-server
+1) `BACKEND`
+2) `AUTH`
 
 ## Tests
 
