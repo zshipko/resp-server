@@ -79,7 +79,8 @@ end
 (** General authentication modes *)
 module Auth: sig
   (** Authentication using a passphrase *)
-  module String: AUTH
+  module String: AUTH with type t = string
+  module MultiUser: AUTH with type t = (string, string) Hashtbl.t
 end
 
 (** Construct a new SERVER with given authentication mode and backend *)

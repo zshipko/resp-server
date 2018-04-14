@@ -61,6 +61,17 @@ module Auth = struct
     let check auth args =
       Array.length args > 0 && args.(0) = auth
   end
+
+  module MultiUser = struct
+    type t = (string, string) Hashtbl.t
+
+    let check auth args =
+      if Array.length args < 2 then false
+      else
+        try
+          Hashtbl.find auth args.(0) = args.(0)
+        with Not_found -> false
+  end
 end
 
 module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth = A  = struct
