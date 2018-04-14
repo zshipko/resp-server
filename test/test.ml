@@ -9,7 +9,7 @@ open Lwt.Infix
 module Backend = struct
   type t = (string, string) Hashtbl.t
   type client = unit
-  let new_client () = ()
+  let new_client _ctx = ()
 end
 
 module Server = Resp_server.Make(Resp_server.Auth.String)(Backend)
