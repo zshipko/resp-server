@@ -28,6 +28,7 @@ module type SERVER = sig
 
   val ok: Hiredis.value option Lwt.t
   val error: string -> Hiredis.value option Lwt.t
+  val invalid_arguments: unit -> Hiredis.value option Lwt.t
 
   type command =
     Backend.t ->
@@ -92,6 +93,9 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
 
   let error msg =
     Lwt.return_some (Value.error ("ERR " ^ msg))
+
+  let invalid_arguments () =
+    Lwt.return_some (Value.error "ERR invalid arguments")
 
   let ok = Lwt.return_some (Value.status "OK")
 

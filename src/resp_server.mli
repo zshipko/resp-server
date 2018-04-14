@@ -31,8 +31,11 @@ module type SERVER = sig
   (** Respond with OK simple string *)
   val ok: Hiredis.value option Lwt.t
 
-  (** Respond with an error message *)
+  (** Respond with an error *)
   val error: string -> Hiredis.value option Lwt.t
+
+  (** Response with an invalid arguments error *)
+  val invalid_arguments: unit -> Hiredis.value option Lwt.t
 
   (** Underlying server type, this is typically not available to
    * consumers of the API *)
@@ -78,8 +81,9 @@ end
 
 (** General authentication modes *)
 module Auth: sig
-  (** Authentication using a passphrase *)
+  (** Authentication using a single passphrase *)
   module String: AUTH with type t = string
+  (** Authentication using usernames and passwords for multiple users *)
   module User: AUTH with type t = (string, string) Hashtbl.t
 end
 
