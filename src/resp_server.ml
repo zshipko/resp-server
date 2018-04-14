@@ -12,7 +12,7 @@ open Unix
 module type BACKEND = sig
   type t
   type client
-  val new_client: unit -> client
+  val new_client: t -> client
 end
 
 module type AUTH = sig
@@ -26,7 +26,12 @@ module type SERVER = sig
 
   type t
 
-  type command = Backend.t -> Backend.client -> string -> Hiredis.value array -> Hiredis.value option Lwt.t
+  type command =
+    Backend.t ->
+    Backend.client ->
+    string ->
+    Hiredis.value array ->
+    Hiredis.value option Lwt.t
 
   val add_command: t -> string -> command -> unit
   val del_command: t -> string -> unit
@@ -210,7 +215,7 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
       c_out = oc;
       c_buf = buf;
       c_reader = r;
-      c_data = B.new_client ();
+      c_data = B.new_client srv.s_data;
     } in
     Lwt.catch (fun () ->
       aux srv (srv.s_auth = None) client)

@@ -21,8 +21,8 @@ instructions.
 
 To create a new server using `resp-server` you need to define a few modules.
 
-1) `BACKEND`
-2) `AUTH`
+1) `BACKEND` - defines the request context and client types
+2) `AUTH` - defines authentication types
 
 ## Tests
 

@@ -1,11 +1,25 @@
+(** The BACKEND module type defines the minimum needed interface to
+ * create a new RESP server *)
 module type BACKEND = sig
+
+  (** t is the server request context type *)
   type t
+
+  (** client is the client context type *)
   type client
-  val new_client: unit -> client
+
+  (** new_client creates new client context *)
+  val new_client: t -> client
 end
 
+(** The AUTH module type defines the interface for authenticating a client *)
 module type AUTH = sig
+
+  (** Authentication type *)
   type t
+
+  (** check is used to determine if the client has passed the correct
+   *  authentication to the server *)
   val check: t -> string array -> bool
 end
 
@@ -15,7 +29,12 @@ module type SERVER = sig
 
   type t
 
-  type command = Backend.t -> Backend.client -> string -> Hiredis.value array -> Hiredis.value option Lwt.t
+  type command =
+    Backend.t ->
+    Backend.client ->
+    string ->
+    Hiredis.value array ->
+    Hiredis.value option Lwt.t
 
   val add_command: t -> string -> command -> unit
   val del_command: t -> string -> unit
