@@ -63,7 +63,7 @@ let modify_value db args f =
     | [| String key |] ->
         (match Hashtbl.find_opt srv key with
         | Some i -> Hashtbl.replace srv key (f i)
-        | None -> Hashtbl.replace srv key 1
+        | None -> Hashtbl.replace srv key (f 0)
         end;
         Server.ok)
     | _ -> Server.error "Invalid arguments"
@@ -83,12 +83,14 @@ let commands = [
 
 4) Create and run the server
 
+```ocaml
 let main =
     let db = Hashtbl.create 16 in
     let srv = Server.create ~commands (`TCP (`Port 1234)) db in
     Server.run srv
 
 let () = Lwt.main.run main
+```
 
 ## Tests
 
