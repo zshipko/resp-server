@@ -14,8 +14,7 @@ resp-server can be installed with `opam`:
 
     opam install resp-server
 
-If you don't use `opam` consult the [`opam`](opam) file for build
-instructions.
+If you don't use `opam` consult the [`opam`](opam) file for build instructions.
 
 ## Documentation
 
@@ -25,15 +24,20 @@ See `src/resp_server.mli` for the commented interface description.
 
 ## Getting started
 
-To create a new server using `resp-server` you need to define a few modules. As an example we will create a simple counter server
+To create a new server using `resp-server` you need to define a few modules.
+
+As an example we can create a simple counter server that has keys with integer values that can be incremented and decremented:
 
 1) `BACKEND` - defines the request context and client types
 
 ```ocaml
 module Backend = struct
+    (** This is the global request context type *)
     type t = (string, int) Hashtbl.t
 
+    (** The client type is the per-client request context type *)
     type client = ()
+
     type new_client _ctx = ()
 end
 ```
@@ -44,8 +48,7 @@ end
 module Auth = struct
     type t = string
     let check t cmd =
-        if Array.length cmd = 0 then false
-        else cmd.(0) = t
+        Array.length cmd > 0 && cmd.(0) = t
 end
 ```
 
@@ -86,7 +89,7 @@ let commands = [
 let main =
     let db = Hashtbl.create 16 in
     let auth = "password" in
-    let srv = Server.create ~auth ~commands(`TCP (`Port 1234)) db in
+    let srv = Server.create ~auth ~commands (`TCP (`Port 1234)) db in
     Server.run srv
 
 let () = Lwt.main.run main
@@ -95,7 +98,6 @@ let () = Lwt.main.run main
 ## Tests
 
 In the distribution sample programs and tests are located in the
-[`test`](test) directory. They can be built and run
-with:
+[`test`](test) directory. They can be built and run with:
 
     jbuilder runtest
