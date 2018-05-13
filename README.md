@@ -92,7 +92,7 @@ let main =
     let srv = Server.create ~auth ~commands (`TCP (`Port 1234)) db in
     Server.run srv
 
-let () = Lwt.main.run main
+let () = Lwt_main.run main
 ```
 
 ## Tests
