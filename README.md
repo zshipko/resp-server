@@ -36,9 +36,9 @@ module Backend = struct
     type t = (string, int) Hashtbl.t
 
     (** The client type is the per-client request context type *)
-    type client = ()
+    type client = unit
 
-    type new_client _ctx = ()
+    let new_client _ctx = ()
 end
 ```
 
