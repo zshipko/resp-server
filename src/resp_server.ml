@@ -5,7 +5,8 @@
   ---------------------------------------------------------------------------*)
 
 open Lwt.Infix
-open Hiredis
+
+module Value = Hiredis_value
 
 open Unix
 
@@ -28,16 +29,16 @@ module type SERVER = sig
 
   type t
 
-  val ok: Hiredis.value option Lwt.t
-  val error: string -> Hiredis.value option Lwt.t
-  val invalid_arguments: unit -> Hiredis.value option Lwt.t
+  val ok: Value.t option Lwt.t
+  val error: string -> Value.t option Lwt.t
+  val invalid_arguments: unit -> Value.t option Lwt.t
 
   type command =
     Backend.t ->
     Backend.client ->
     string ->
-    Hiredis.value array ->
-    Hiredis.value option Lwt.t
+    Value.t array ->
+    Value.t option Lwt.t
 
   val create:
     ?auth: Auth.t ->
@@ -77,11 +78,69 @@ module Auth = struct
   end
 end
 
+ let rec read_value ic =
+    let open Value in
+    Lwt_io.read_char ic >>= function
+    | ':' ->
+        Lwt_io.read_line ic >|= fun i ->
+        let i = Int64.of_string i in
+        Value.Integer i
+    | '-' -> Lwt_io.read_line ic >|= fun line -> Error line
+    | '+' -> Lwt_io.read_line ic >|= fun line -> Status line
+    | '*' ->
+        Lwt_io.read_line ic >>= fun i ->
+        let i = Int64.of_string i in
+        if i < 0L then Lwt.return Nil
+        else
+          let rec aux n acc =
+            match n with
+            | 0L -> acc
+            | n -> read_value ic >>= fun x -> aux (Int64.sub n 1L) acc >|= fun l -> x :: l
+          in
+          (aux i (Lwt.return [])) >|= fun x ->
+          Array (Array.of_list x)
+    | '$' ->
+        Lwt_io.read_line ic >>= fun i ->
+        let i = int_of_string i in
+        if i < 0 then Lwt.return Nil
+        else
+          Lwt_io.read ~count:i ic >>= fun s ->
+          Lwt_io.read_char ic >>= fun _ ->
+          Lwt_io.read_char ic >|= fun _ ->
+          String s
+    | _ -> raise Invalid_encoding
+
+  let rec write_value oc x =
+    let open Value in
+    match x with
+    | Nil -> Lwt_io.write oc "*-1\r\n"
+    | Error e ->
+      Lwt_io.write oc "-" >>= fun () ->
+      Lwt_io.write oc e >>= fun () ->
+      Lwt_io.write oc "\r\n"
+    | Integer i ->
+      Lwt_io.write oc ":" >>= fun () ->
+      Lwt_io.write oc (Printf.sprintf "%Ld\r\n" i)
+    | String s ->
+      Lwt_io.write oc (Printf.sprintf "$%d\r\n" (String.length s)) >>= fun () ->
+      Lwt_io.write oc s >>= fun () ->
+      Lwt_io.write oc "\r\n"
+    | Array arr ->
+      Lwt_io.write oc (Printf.sprintf "*%d\r\n" (Array.length arr)) >>= fun () ->
+      let rec write_all arr i =
+        if i >= Array.length arr then Lwt.return_unit
+        else write_value oc arr.(i) >>= fun () -> write_all arr (i + 1)
+      in write_all arr 0
+    | Status s ->
+      Lwt_io.write oc "+" >>= fun () ->
+      Lwt_io.write oc s >>= fun () ->
+      Lwt_io.write oc "\r\n"
+
 module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth = A  = struct
   module Auth = A
   module Backend = B
 
-  type command = Backend.t -> Backend.client -> string -> Hiredis.value array -> Hiredis.value option Lwt.t
+  type command = Backend.t -> Backend.client -> string -> Value.t array -> Value.t option Lwt.t
 
   type t = {
     s_ctx: Conduit_lwt_unix.ctx;
@@ -104,8 +163,6 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
   type client = {
     c_in: Lwt_io.input_channel;
     c_out: Lwt_io.output_channel;
-    c_buf: bytes;
-    c_reader: Hiredis.Reader.t;
     c_data: B.client;
   }
 
@@ -127,63 +184,6 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
       s_default = default;
     }
 
-  let buffer_size = 2048
-
-  let rec read' ic =
-    Lwt_io.read_char ic >>= function
-    | ':' ->
-        Lwt_io.read_line ic >|= fun i ->
-        let i = Int64.of_string i in
-        Integer i
-    | '-' -> Lwt_io.read_line ic >|= fun line -> Error line
-    | '+' -> Lwt_io.read_line ic >|= fun line -> Status line
-    | '*' ->
-        Lwt_io.read_line ic >>= fun i ->
-        let i = Int64.of_string i in
-        if i < 0L then Lwt.return Nil
-        else
-          let rec aux n acc =
-            match n with
-            | 0L -> acc
-            | n -> read' ic >>= fun x -> aux (Int64.sub n 1L) acc >|= fun l -> x :: l
-          in
-          (aux i (Lwt.return [])) >|= fun x ->
-          Array (Array.of_list x)
-    | '$' ->
-        Lwt_io.read_line ic >>= fun i ->
-        let i = int_of_string i in
-        if i < 0 then Lwt.return Nil
-        else
-          Lwt_io.read ~count:i ic >>= fun s ->
-          Lwt_io.read_char ic >>= fun _ ->
-          Lwt_io.read_char ic >|= fun _ ->
-          String s
-    | _ -> raise Invalid_encoding
-
-  let rec write oc = function
-    | Nil -> Lwt_io.write oc "*-1\r\n"
-    | Error e ->
-      Lwt_io.write oc "-" >>= fun () ->
-      Lwt_io.write oc e >>= fun () ->
-      Lwt_io.write oc "\r\n"
-    | Integer i ->
-      Lwt_io.write oc ":" >>= fun () ->
-      Lwt_io.write oc (Printf.sprintf "%Ld\r\n" i)
-    | String s ->
-      Lwt_io.write oc (Printf.sprintf "$%d\r\n" (String.length s)) >>= fun () ->
-      Lwt_io.write oc s >>= fun () ->
-      Lwt_io.write oc "\r\n"
-    | Array arr ->
-      Lwt_io.write oc (Printf.sprintf "*%d\r\n" (Array.length arr)) >>= fun () ->
-      let rec write_all arr i =
-        if i >= Array.length arr then Lwt.return_unit
-        else write oc arr.(i) >>= fun () -> write_all arr (i + 1)
-      in write_all arr 0
-    | Status s ->
-      Lwt_io.write oc "+" >>= fun () ->
-      Lwt_io.write oc s >>= fun () ->
-      Lwt_io.write oc "\r\n"
-
   let check auth args =
     match auth with
     | Some a -> Auth.check a args
@@ -191,12 +191,12 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
 
   let split_command arr =
       try
-        let cmd = Hiredis.Value.to_string arr.(0)
+        let cmd = Value.to_string arr.(0)
           |> String.lowercase_ascii in
         let args = Array.sub arr 1 (Array.length arr - 1) in
         cmd, args
       with
-        | Hiredis.Value.Invalid_value -> "", [||]
+        | Value.Invalid_value -> "", [||]
 
   let determine_command srv cmd =
     match Hashtbl.find_opt srv.s_cmd cmd with
@@ -209,7 +209,7 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
       end
 
   let rec aux srv authenticated client =
-    Lwt.catch (fun () -> read' client.c_in >>= Lwt.return_some)
+    Lwt.catch (fun () -> read_value client.c_in >>= Lwt.return_some)
               (function
                 | Invalid_encoding -> Lwt.return_none
                 | x -> raise x) >>= function
@@ -222,7 +222,7 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
       else
         when_not_authenticated srv client cmd args
     | _ ->
-      write client.c_out (Error "NOCOMMAND Invalid Command")
+      write_value client.c_out (Error "NOCOMMAND Invalid Command")
 
   and when_authenticated srv client cmd args =
     match determine_command srv cmd with
@@ -231,38 +231,34 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
         f srv.s_data client.c_data cmd args >>= fun r ->
         match r with
         | Some res ->
-            write client.c_out res >>= fun () ->
+            write_value client.c_out res >>= fun () ->
             aux srv true client
         | None -> Lwt.return_unit
       end
     | None ->
       (if cmd = "command" then
-        let commands = Hashtbl.fold (fun k v dst -> Hiredis.Value.string k :: dst) srv.s_cmd [] in
-        write client.c_out (Hiredis.Value.array (Array.of_list commands))
+        let commands = Hashtbl.fold (fun k v dst -> Value.string k :: dst) srv.s_cmd [] in
+        write_value client.c_out (Value.array (Array.of_list commands))
       else
-        write client.c_out (Error "NOCOMMAND Invalid command")) >>= fun _ ->
+        write_value client.c_out (Error "NOCOMMAND Invalid command")) >>= fun _ ->
         aux srv true client
 
     and when_not_authenticated srv client cmd args =
       let args =
         try
-          Array.map Hiredis.Value.to_string args
-        with Hiredis.Value.Invalid_value -> [||] in
+          Array.map Value.to_string args
+        with Value.Invalid_value -> [||] in
       if cmd = "auth" && check srv.s_auth args then
-        write client.c_out (Status "OK") >>= fun () ->
+        write_value client.c_out (Status "OK") >>= fun () ->
         aux srv true client
       else
-        write client.c_out (Error "NOAUTH Authentication Required") >>= fun _ ->
+        write_value client.c_out (Error "NOAUTH Authentication Required") >>= fun _ ->
         aux srv false client
 
   let rec handle srv flow ic oc =
-    let r = Reader.create () in
-    let buf = Bytes.make buffer_size ' ' in
     let client = {
       c_in = ic;
       c_out = oc;
-      c_buf = buf;
-      c_reader = r;
       c_data = B.new_client srv.s_data;
     } in
     Lwt.catch
@@ -272,6 +268,10 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
   let run ?backlog ?timeout ?stop ?on_exn srv =
     Conduit_lwt_unix.serve ?backlog ?timeout ?stop ?on_exn
       ~ctx:srv.s_ctx ~mode:srv.s_mode (handle srv)
+end
+
+module Client = struct
+
 end
 
 (*---------------------------------------------------------------------------

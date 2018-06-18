@@ -4,4 +4,4 @@
     ((name resp_server)
      (public_name resp-server)
      (wrapped false)
-     (libraries (conduit-lwt-unix hiredis))))
+     (libraries (conduit-lwt-unix hiredis-value))))

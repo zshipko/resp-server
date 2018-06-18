@@ -20,6 +20,11 @@ module type AUTH = sig
   val check: t -> string array -> bool
 end
 
+module Value = Hiredis_value
+
+val read_value: Lwt_io.input_channel -> Value.t Lwt.t
+val write_value: Lwt_io.output_channel -> Value.t -> unit Lwt.t
+
 (** SERVER defines the interface for a server *)
 module type SERVER = sig
   (** Authentication mode *)
@@ -29,13 +34,13 @@ module type SERVER = sig
   module Backend: BACKEND
 
   (** Respond with OK simple string *)
-  val ok: Hiredis.value option Lwt.t
+  val ok: Value.t option Lwt.t
 
   (** Respond with an error *)
-  val error: string -> Hiredis.value option Lwt.t
+  val error: string -> Value.t option Lwt.t
 
   (** Response with an invalid arguments error *)
-  val invalid_arguments: unit -> Hiredis.value option Lwt.t
+  val invalid_arguments: unit -> Value.t option Lwt.t
 
   (** Underlying server type, this is typically not available to
    * consumers of the API *)
@@ -46,8 +51,8 @@ module type SERVER = sig
     Backend.t ->
     Backend.client ->
     string ->
-    Hiredis.value array ->
-    Hiredis.value option Lwt.t
+    Value.t array ->
+    Value.t option Lwt.t
 
   (** Create a new server instance.
    *
