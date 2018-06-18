@@ -89,16 +89,16 @@ let rec read_value ic =
   | '+' -> Lwt_io.read_line ic >|= fun line -> Status line
   | '*' ->
       Lwt_io.read_line ic >>= fun i ->
-      let i = Int64.of_string i in
-      if i < 0L then Lwt.return Nil
+      let i = int_of_string i in
+      if i < 0 then Lwt.return Nil
       else
         let rec aux n acc =
           match n with
-          | 0L -> acc
-          | n -> read_value ic >>= fun x -> aux (Int64.sub n 1L) acc >|= fun l -> x :: l
+          | 0 -> acc
+          | n -> read_value ic >>= fun x -> aux (n - 1) acc >|= fun l -> Array.append [|x|]  l
         in
-        (aux i (Lwt.return [])) >|= fun x ->
-        Array (Array.of_list x)
+        (aux i (Lwt.return [||])) >|= fun x ->
+        Array x
   | '$' ->
       Lwt_io.read_line ic >>= fun i ->
       let i = int_of_string i in
