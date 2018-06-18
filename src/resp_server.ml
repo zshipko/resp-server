@@ -97,12 +97,11 @@ let rec read_value ic =
           match n with
           | 0 -> Lwt.return_unit
           | n ->
-              let n = n - 1 in
               read_value ic >>= fun x ->
-              arr.(n) <- x;
-              aux n
+              arr.(i - n) <- x;
+              aux (n - 1)
         in
-        (aux i) >|= fun () ->
+        aux i >|= fun () ->
         Array arr
   | '$' ->
       Lwt_io.read_line ic >>= fun i ->
