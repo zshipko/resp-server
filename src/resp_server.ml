@@ -210,7 +210,9 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
 
   let rec aux srv authenticated client =
     Lwt.catch (fun () -> read' client.c_in >>= Lwt.return_some)
-              (fun exn -> Lwt.return_none )>>= function
+              (function
+                | Invalid_encoding -> Lwt.return_none
+                | x -> raise x) >>= function
     | None ->
       aux srv authenticated client
     | Some (Array a) when Array.length a > 0 ->
