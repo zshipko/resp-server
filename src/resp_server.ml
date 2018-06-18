@@ -90,15 +90,20 @@ let rec read_value ic =
   | '*' ->
       Lwt_io.read_line ic >>= fun i ->
       let i = int_of_string i in
+      let arr = Array.make i Value.Nil in
       if i < 0 then Lwt.return Nil
       else
-        let rec aux n acc =
+        let rec aux n =
           match n with
-          | 0 -> acc
-          | n -> read_value ic >>= fun x -> aux (n - 1) acc >|= fun l -> Array.append [|x|]  l
+          | 0 -> Lwt.return_unit
+          | n ->
+              let n = n - 1 in
+              read_value ic >>= fun x ->
+              arr.(n) <- x;
+              aux n
         in
-        (aux i (Lwt.return [||])) >|= fun x ->
-        Array x
+        (aux i) >|= fun () ->
+        Array arr
   | '$' ->
       Lwt_io.read_line ic >>= fun i ->
       let i = int_of_string i in
