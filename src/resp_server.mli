@@ -25,6 +25,23 @@ module Value = Hiredis_value
 val read_value: Lwt_io.input_channel -> Value.t Lwt.t
 val write_value: Lwt_io.output_channel -> Value.t -> unit Lwt.t
 
+module Client: sig
+  type t
+  val connect:
+      ?ctx:Conduit_lwt_unix.ctx ->
+      ?tls_config:Conduit_lwt_unix.client_tls_config ->
+      ?host:string -> ?port:int ->
+      ?unix:string ->
+      unit ->
+      t Lwt.t
+
+  val read: t ->  Value.t Lwt.t
+  val write: t -> Value.t -> unit Lwt.t
+
+  val run: t -> string array -> Value.t Lwt.t
+  val run_v: t -> Value.t array -> Value.t Lwt.t
+end
+
 (** SERVER defines the interface for a server *)
 module type SERVER = sig
   (** Authentication mode *)
@@ -75,7 +92,7 @@ module type SERVER = sig
     t Lwt.t
 
   (** Run the server *)
-  val run :
+  val start:
     ?backlog: int ->
     ?timeout: int ->
     ?stop: unit Lwt.t ->

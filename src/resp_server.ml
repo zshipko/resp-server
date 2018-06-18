@@ -50,7 +50,7 @@ module type SERVER = sig
     Backend.t ->
     t Lwt.t
 
-  val run:
+  val start:
     ?backlog: int ->
     ?timeout: int ->
     ?stop: unit Lwt.t ->
@@ -78,63 +78,84 @@ module Auth = struct
   end
 end
 
- let rec read_value ic =
-    let open Value in
-    Lwt_io.read_char ic >>= function
-    | ':' ->
-        Lwt_io.read_line ic >|= fun i ->
-        let i = Int64.of_string i in
-        Value.Integer i
-    | '-' -> Lwt_io.read_line ic >|= fun line -> Error line
-    | '+' -> Lwt_io.read_line ic >|= fun line -> Status line
-    | '*' ->
-        Lwt_io.read_line ic >>= fun i ->
-        let i = Int64.of_string i in
-        if i < 0L then Lwt.return Nil
-        else
-          let rec aux n acc =
-            match n with
-            | 0L -> acc
-            | n -> read_value ic >>= fun x -> aux (Int64.sub n 1L) acc >|= fun l -> x :: l
-          in
-          (aux i (Lwt.return [])) >|= fun x ->
-          Array (Array.of_list x)
-    | '$' ->
-        Lwt_io.read_line ic >>= fun i ->
-        let i = int_of_string i in
-        if i < 0 then Lwt.return Nil
-        else
-          Lwt_io.read ~count:i ic >>= fun s ->
-          Lwt_io.read_char ic >>= fun _ ->
-          Lwt_io.read_char ic >|= fun _ ->
-          String s
-    | _ -> raise Invalid_encoding
+let rec read_value ic =
+  let open Value in
+  Lwt_io.read_char ic >>= function
+  | ':' ->
+      Lwt_io.read_line ic >|= fun i ->
+      let i = Int64.of_string i in
+      Value.Integer i
+  | '-' -> Lwt_io.read_line ic >|= fun line -> Error line
+  | '+' -> Lwt_io.read_line ic >|= fun line -> Status line
+  | '*' ->
+      Lwt_io.read_line ic >>= fun i ->
+      let i = Int64.of_string i in
+      if i < 0L then Lwt.return Nil
+      else
+        let rec aux n acc =
+          match n with
+          | 0L -> acc
+          | n -> read_value ic >>= fun x -> aux (Int64.sub n 1L) acc >|= fun l -> x :: l
+        in
+        (aux i (Lwt.return [])) >|= fun x ->
+        Array (Array.of_list x)
+  | '$' ->
+      Lwt_io.read_line ic >>= fun i ->
+      let i = int_of_string i in
+      if i < 0 then Lwt.return Nil
+      else
+        Lwt_io.read ~count:i ic >>= fun s ->
+        Lwt_io.read_char ic >>= fun _ ->
+        Lwt_io.read_char ic >|= fun _ ->
+        String s
+  | _ -> raise Invalid_encoding
 
-  let rec write_value oc x =
-    let open Value in
-    match x with
-    | Nil -> Lwt_io.write oc "*-1\r\n"
-    | Error e ->
-      Lwt_io.write oc "-" >>= fun () ->
-      Lwt_io.write oc e >>= fun () ->
-      Lwt_io.write oc "\r\n"
-    | Integer i ->
-      Lwt_io.write oc ":" >>= fun () ->
-      Lwt_io.write oc (Printf.sprintf "%Ld\r\n" i)
-    | String s ->
-      Lwt_io.write oc (Printf.sprintf "$%d\r\n" (String.length s)) >>= fun () ->
-      Lwt_io.write oc s >>= fun () ->
-      Lwt_io.write oc "\r\n"
-    | Array arr ->
-      Lwt_io.write oc (Printf.sprintf "*%d\r\n" (Array.length arr)) >>= fun () ->
-      let rec write_all arr i =
-        if i >= Array.length arr then Lwt.return_unit
-        else write_value oc arr.(i) >>= fun () -> write_all arr (i + 1)
-      in write_all arr 0
-    | Status s ->
-      Lwt_io.write oc "+" >>= fun () ->
-      Lwt_io.write oc s >>= fun () ->
-      Lwt_io.write oc "\r\n"
+let rec write_value oc x =
+  let open Value in
+  match x with
+  | Nil -> Lwt_io.write oc "*-1\r\n"
+  | Error e ->
+    Lwt_io.write oc "-" >>= fun () ->
+    Lwt_io.write oc e >>= fun () ->
+    Lwt_io.write oc "\r\n"
+  | Integer i ->
+    Lwt_io.write oc ":" >>= fun () ->
+    Lwt_io.write oc (Printf.sprintf "%Ld\r\n" i)
+  | String s ->
+    Lwt_io.write oc (Printf.sprintf "$%d\r\n" (String.length s)) >>= fun () ->
+    Lwt_io.write oc s >>= fun () ->
+    Lwt_io.write oc "\r\n"
+  | Array arr ->
+    Lwt_io.write oc (Printf.sprintf "*%d\r\n" (Array.length arr)) >>= fun () ->
+    let rec write_all arr i =
+      if i >= Array.length arr then Lwt.return_unit
+      else write_value oc arr.(i) >>= fun () -> write_all arr (i + 1)
+    in write_all arr 0
+  | Status s ->
+    Lwt_io.write oc "+" >>= fun () ->
+    Lwt_io.write oc s >>= fun () ->
+    Lwt_io.write oc "\r\n"
+
+module Client = struct
+  open Conduit_lwt_unix
+  type t = flow * ic * oc
+
+  let connect ?(ctx = default_ctx) ?tls_config ?(host = "127.0.0.1") ?(port = 6978) ?unix () =
+    let client = match unix with
+      | Some u -> `Unix_domain_socket (`File u)
+      | None ->
+          (match tls_config with
+          | Some cfg -> `TLS cfg
+          | None -> `TCP (`IP (Ipaddr.of_string_exn host), `Port port))
+    in
+    Conduit_lwt_unix.connect ~ctx client
+
+  let read (_, ic, _) = read_value ic
+  let write (_, _, oc) x = write_value oc x
+
+  let run (_, ic, oc) cmd = write_value oc (Value.Array (Array.map Value.string cmd)) >>= fun () -> read_value ic
+  let run_v (_, ic, oc) cmd = write_value oc (Value.Array cmd) >>= fun () -> read_value ic
+end
 
 module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth = A  = struct
   module Auth = A
@@ -265,13 +286,9 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
       (fun () -> aux srv (srv.s_auth = None) client)
       (fun _ -> Lwt_unix.yield ())
 
-  let run ?backlog ?timeout ?stop ?on_exn srv =
+  let start ?backlog ?timeout ?stop ?on_exn srv =
     Conduit_lwt_unix.serve ?backlog ?timeout ?stop ?on_exn
       ~ctx:srv.s_ctx ~mode:srv.s_mode (handle srv)
-end
-
-module Client = struct
-
 end
 
 (*---------------------------------------------------------------------------

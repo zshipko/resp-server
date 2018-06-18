@@ -5,6 +5,7 @@
   ---------------------------------------------------------------------------*)
 
 open Lwt.Infix
+open Resp_server
 
 module Backend = struct
   type t = (string, string) Hashtbl.t
@@ -14,37 +15,37 @@ end
 
 module Server = Resp_server.Make(Resp_server.Auth.String)(Backend)
 
-let get (srv: Backend.t) (cli: Backend.client) (_: string) (args: Hiredis.value array) =
+let get (srv: Backend.t) (cli: Backend.client) (_: string) (args: Value.t array) =
   begin match args with
   | [| String key |] ->
     begin
       match Hashtbl.find_opt srv key with
-      | Some v -> Hiredis.Value.string v
-      | None -> Hiredis.Value.nil
+      | Some v -> Value.string v
+      | None -> Value.nil
     end
-  | _ -> Hiredis.Value.error "Invalid arguments"
+  | _ -> Value.error "Invalid arguments"
   end
   |> Lwt.return_some
 
-let del (srv: Backend.t) (cli: Backend.client) (_: string) (args: Hiredis.value array) =
+let del (srv: Backend.t) (cli: Backend.client) (_: string) (args: Value.t array) =
   begin match args with
   | [| String key |] ->
       Hashtbl.remove srv key;
-      Hiredis.Value.status "OK"
-  | _ -> Hiredis.Value.error "Invalid arguments"
+      Value.status "OK"
+  | _ -> Value.error "Invalid arguments"
   end
   |> Lwt.return_some
 
-let set (srv: Backend.t) (cli: Backend.client) (_: string) (args: Hiredis.value array) =
+let set (srv: Backend.t) (cli: Backend.client) (_: string) (args: Value.t array) =
   begin match args with
   | [| String key; String value |] ->
       Hashtbl.replace srv key value;
-      Hiredis.Value.status "OK"
-  | _ -> Hiredis.Value.error "Invalid arguments"
+      Value.status "OK"
+  | _ -> Value.error "Invalid arguments"
   end
   |> Lwt.return_some
 
-let done_ (srv: Backend.t) (cli: Backend.client) (_: string) (args: Hiredis.value array) =
+let done_ (srv: Backend.t) (cli: Backend.client) (_: string) (args: Value.t array) =
   print_endline "Test complete, closing server";
   exit 0
 
@@ -59,18 +60,22 @@ let () =
   match Lwt_unix.fork () with
   | n when n < 0 -> print_endline "Fork error"; exit 1
   | 0 ->
-      Unix.sleep 1;
-      let cli = Hiredis.Client.connect ~port:1234 "127.0.0.1" in
-      let run = Hiredis.Client.run cli in
-      assert (run [| "SET"; "abc"; "123" |] = Hiredis.Value.status "OK");
-      assert (run [| "GET"; "abc" |] = Hiredis.Value.string "123");
-      ignore (run [| "DONE" |]);
-      exit 0
+      let main =
+        Lwt_unix.sleep 1.0 >>= fun () ->
+        Client.connect ~port:1234 ~host:"127.0.0.1" () >>= fun client ->
+        Client.run client [| "SET"; "abc"; "123" |] >>= fun res ->
+        assert (res = Value.status "OK");
+        Client.run client [| "GET"; "abc" |] >>= fun res ->
+        assert (res = Value.string "123");
+        Client.write client (Array [| Value.String "DONE" |]) >>= fun () ->
+        exit 0
+      in Lwt_main.run main
   | n ->
       let ht = Hashtbl.create 16 in
       Lwt_main.run (
         Server.create ~commands (`TCP (`Port 1234)) ht >>= fun server ->
-          Server.run server)
+        Server.start server
+      )
 
 (*---------------------------------------------------------------------------
    Copyright (c) 2018 Zach Shipko
