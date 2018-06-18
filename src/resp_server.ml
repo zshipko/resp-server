@@ -9,6 +9,8 @@ open Hiredis
 
 open Unix
 
+exception Invalid_encoding
+
 module type BACKEND = sig
   type t
   type client
@@ -127,6 +129,33 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
 
   let buffer_size = 2048
 
+  let rec read' ic =
+    Lwt_io.read_char ic >>= function
+    | ':' -> Lwt_io.read_int64 ic >|= fun i -> Integer i
+    | '-' -> Lwt_io.read_line ic >|= fun line -> Error line
+    | '+' -> Lwt_io.read_line ic >|= fun line -> Status line
+    | '*' ->
+        Lwt_io.read_int64 ic >>= fun i ->
+        if i < 0L then Lwt.return Nil
+        else
+          Lwt_io.read_char ic >>= fun _ ->
+          Lwt_io.read_char ic >>= fun _ ->
+          let rec aux n acc =
+            match n with
+            | 0L -> acc
+            | n -> read' ic >>= fun x -> aux (Int64.sub n 1L) acc >|= fun l -> x :: l
+          in
+          (aux i (Lwt.return [])) >|= fun x ->
+          Array (Array.of_list x)
+    | '$' ->
+        Lwt_io.read_int ic >>= fun i ->
+        Lwt_io.read_char ic >>= fun _ ->
+        Lwt_io.read_char ic >>= fun _ ->
+        if i < 0 then Lwt.return Nil
+        else
+          Lwt_io.read ~count:i ic >|= fun s -> String s
+    | _ -> raise Invalid_encoding
+
   let rec write oc = function
     | Nil -> Lwt_io.write oc "*-1\r\n"
     | Error e ->
@@ -176,21 +205,16 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
       end
 
   let rec aux srv authenticated client =
-    Lwt_io.read_into client.c_in client.c_buf 0 buffer_size >>= fun n ->
-    if n <= 0 then
-      Lwt.return_unit
-    else
-      let s = (Bytes.sub client.c_buf 0 n |> Bytes.to_string) in
-      let () = ignore (Reader.feed client.c_reader s) in
-      match Reader.get_reply client.c_reader with
-      | None ->
-        aux srv authenticated client
-      | Some (Array a) when Array.length a > 0 ->
-        let cmd, args = split_command a in
-        if authenticated then
-          when_authenticated srv client cmd args
-        else
-          when_not_authenticated srv client cmd args
+    Lwt.catch (fun () -> read' client.c_in >>= Lwt.return_some)
+              (fun exn -> Lwt.return_none )>>= function
+    | None ->
+      aux srv authenticated client
+    | Some (Array a) when Array.length a > 0 ->
+      let cmd, args = split_command a in
+      if authenticated then
+        when_authenticated srv client cmd args
+      else
+        when_not_authenticated srv client cmd args
     | _ ->
       write client.c_out (Error "NOCOMMAND Invalid Command")
 
