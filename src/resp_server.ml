@@ -131,15 +131,17 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
 
   let rec read' ic =
     Lwt_io.read_char ic >>= function
-    | ':' -> Lwt_io.read_int64 ic >|= fun i -> Integer i
+    | ':' ->
+        Lwt_io.read_line ic >|= fun i ->
+        let i = Int64.of_string i in
+        Integer i
     | '-' -> Lwt_io.read_line ic >|= fun line -> Error line
     | '+' -> Lwt_io.read_line ic >|= fun line -> Status line
     | '*' ->
-        Lwt_io.read_int64 ic >>= fun i ->
+        Lwt_io.read_line ic >>= fun i ->
+        let i = Int64.of_string i in
         if i < 0L then Lwt.return Nil
         else
-          Lwt_io.read_char ic >>= fun _ ->
-          Lwt_io.read_char ic >>= fun _ ->
           let rec aux n acc =
             match n with
             | 0L -> acc
@@ -148,12 +150,14 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
           (aux i (Lwt.return [])) >|= fun x ->
           Array (Array.of_list x)
     | '$' ->
-        Lwt_io.read_int ic >>= fun i ->
-        Lwt_io.read_char ic >>= fun _ ->
-        Lwt_io.read_char ic >>= fun _ ->
+        Lwt_io.read_line ic >>= fun i ->
+        let i = int_of_string i in
         if i < 0 then Lwt.return Nil
         else
-          Lwt_io.read ~count:i ic >|= fun s -> String s
+          Lwt_io.read ~count:i ic >>= fun s ->
+          Lwt_io.read_char ic >>= fun _ ->
+          Lwt_io.read_char ic >|= fun _ ->
+          String s
     | _ -> raise Invalid_encoding
 
   let rec write oc = function
