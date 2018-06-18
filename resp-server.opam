@@ -19,7 +19,7 @@ depends:
 
 build:
 [
-    ["jbuilder" "build"]
+    ["jbuilder" "build" "-p" name]
 ]
 
 build-test:

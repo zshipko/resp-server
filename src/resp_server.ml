@@ -236,10 +236,8 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
   let rec aux srv authenticated client =
     Lwt.catch (fun () -> read_value client.c_in >>= Lwt.return_some)
               (function
-                | Invalid_encoding -> Lwt.return_none
+                | Invalid_encoding | End_of_file -> Lwt.return_none
                 | x -> raise x) >>= function
-    | None ->
-      aux srv authenticated client
     | Some (Array a) when Array.length a > 0 ->
       let cmd, args = split_command a in
       if authenticated then
