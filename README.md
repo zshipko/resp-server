@@ -18,6 +18,8 @@ If you don't use `opam` consult the [`opam`](opam) file for build instructions.
 
 ## Documentation
 
+Documentation is available [online](https://zshipko.github.io/resp-server).
+
 To generate documentation locally run `odig odoc resp-server` - then to view run `odig doc` in the root of the project.
 
 See `src/resp_server.mli` for the commented interface description.
