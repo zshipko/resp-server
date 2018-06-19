@@ -30,9 +30,8 @@ module Client: sig
   val connect:
       ?ctx:Conduit_lwt_unix.ctx ->
       ?tls_config:Conduit_lwt_unix.client_tls_config ->
-      ?host:string -> ?port:int ->
-      ?unix:string ->
-      unit ->
+      ?port:int ->
+      string ->
       t Lwt.t
 
   val read: t ->  Value.t Lwt.t

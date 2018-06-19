@@ -144,13 +144,13 @@ module Client = struct
   open Conduit_lwt_unix
   type t = flow * ic * oc
 
-  let connect ?(ctx = default_ctx) ?tls_config ?(host = "127.0.0.1") ?(port = 6978) ?unix () =
-    let client = match unix with
-      | Some u -> `Unix_domain_socket (`File u)
-      | None ->
+  let connect ?(ctx = default_ctx) ?tls_config ?port s =
+    let client = match port with
+      | None -> `Unix_domain_socket (`File s)
+      | Some port ->
           (match tls_config with
           | Some cfg -> `TLS cfg
-          | None -> `TCP (`IP (Ipaddr.of_string_exn host), `Port port))
+          | None -> `TCP (`IP (Ipaddr.of_string_exn s), `Port port))
     in
     Conduit_lwt_unix.connect ~ctx client
 
