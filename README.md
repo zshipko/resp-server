@@ -1,4 +1,4 @@
-resp-server — An OCaml library for building servers that speak RESP
+resp-server — Servers that communicate using the Redis serialization protocol
 -------------------------------------------------------------------------------
 %%VERSION%%
 

@@ -16,17 +16,20 @@ module type AUTH = sig
   type t
 
   (** Used to determine if the client has passed the valid
-   *  authentication to the server *)
+      authentication to the server *)
   val check: t -> string array -> bool
 end
 
 module Value = Hiredis_value
-
 val read_value: Lwt_io.input_channel -> Value.t Lwt.t
 val write_value: Lwt_io.output_channel -> Value.t -> unit Lwt.t
 
+(** Client is a pure OCaml implementation of a minimal Redis client *)
 module Client: sig
   type t
+
+  (** Connect to a remote server optionally with TLS. If no port is provided then the string arguments
+      is assumed to be a Unix socket address. *)
   val connect:
       ?ctx:Conduit_lwt_unix.ctx ->
       ?tls_config:Conduit_lwt_unix.client_tls_config ->
@@ -34,10 +37,16 @@ module Client: sig
       string ->
       t Lwt.t
 
+  (** Read a value from the connection *)
   val read: t ->  Value.t Lwt.t
+
+  (** Write a value to the connection *)
   val write: t -> Value.t -> unit Lwt.t
 
+  (** Write a command to the connection and return the the resulting value *)
   val run: t -> string array -> Value.t Lwt.t
+
+  (** Similar to {!run}, but take an array of values instead of an array of strings *)
   val run_v: t -> Value.t array -> Value.t Lwt.t
 end
 
@@ -59,7 +68,7 @@ module type SERVER = sig
   val invalid_arguments: unit -> Value.t option Lwt.t
 
   (** Underlying server type, this is typically not available to
-   * consumers of the API *)
+      consumers of the API *)
   type t
 
   (** The signature of a command function *)
@@ -71,14 +80,13 @@ module type SERVER = sig
     Value.t option Lwt.t
 
   (** Create a new server instance.
-   *
-   * - auth sets the authentication
-   * - default sets the default command handler
-   * - commands sets the commands for the server
-   * - host is the hostname of the server (ex 127.0.0.1)
-   * - tls_config configures ssl for the server - see conduit-lwt-unix for more inforation
-   * - The server type is also inherited from Conduit, but typically you will use either
-   *   `TCP (`PORT $PORTNUMBER) or `Unix_domain_socket (`File $FILENAME)
+   - auth sets the authentication
+   - default sets the default command handler
+   - commands sets the commands for the server
+   - host is the hostname of the server (ex 127.0.0.1)
+   - tls_config configures ssl for the server - see conduit-lwt-unix for more inforation
+   - The server type is also inherited from Conduit, but typically you will use either
+     `TCP (`PORT $PORTNUMBER) or `Unix_domain_socket (`File $FILENAME)
    *)
   val create :
     ?auth: Auth.t ->
