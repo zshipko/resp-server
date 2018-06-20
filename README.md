@@ -66,11 +66,12 @@ module Server = Make(Auth)(Backend)
 let modify_value db args f =
     match args with
     | [| String key |] ->
-        (match Hashtbl.find_opt srv key with
-        | Some i -> Hashtbl.replace srv key (f i)
-        | None -> Hashtbl.replace srv key (f 0)
-        end;
-        Server.ok)
+        let () =
+            match Hashtbl.find_opt srv key with
+            | Some i -> Hashtbl.replace srv key (f i)
+            | None -> Hashtbl.replace srv key (f 0)
+        in
+        Server.ok
     | _ -> Server.error "Invalid arguments"
 
 let _incr db _cli _cmd args =
