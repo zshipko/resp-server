@@ -62,7 +62,7 @@ let () =
   | 0 ->
       let main =
         Lwt_unix.sleep 1.0 >>= fun () ->
-        Client.connect ~port:1234 ~host:"127.0.0.1" () >>= fun client ->
+        Client.connect ~port:1234 "127.0.0.1" >>= fun client ->
         Client.run client [| "SET"; "abc"; "123" |] >>= fun res ->
         assert (res = Value.status "OK");
         Client.run client [| "GET"; "abc" |] >>= fun res ->
