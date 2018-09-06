@@ -8,8 +8,6 @@ open Lwt.Infix
 
 module Value = Hiredis_value
 
-open Unix
-
 exception Invalid_encoding
 
 module type BACKEND = sig
@@ -260,7 +258,7 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
       end
     | None ->
       (if cmd = "command" then
-        let commands = Hashtbl.fold (fun k v dst -> Value.string k :: dst) srv.s_cmd [] in
+        let commands = Hashtbl.fold (fun k _ dst -> Value.string k :: dst) srv.s_cmd [] in
         write_value client.c_out (Value.array (Array.of_list commands))
       else
         write_value client.c_out (Error "NOCOMMAND Invalid command")) >>= fun _ ->
@@ -278,7 +276,7 @@ module Make(A: AUTH)(B: BACKEND): SERVER with module Backend = B and module Auth
         write_value client.c_out (Error "NOAUTH Authentication Required") >>= fun _ ->
         aux srv false client
 
-  let rec handle srv flow ic oc =
+  let handle srv _flow ic oc =
     let client = {
       c_in = ic;
       c_out = oc;

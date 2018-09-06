@@ -112,6 +112,7 @@ end
 module Auth: sig
   (** Authentication using a single passphrase *)
   module String: AUTH with type t = string
+
   (** Authentication using usernames and passwords for multiple users *)
   module User: AUTH with type t = (string, string) Hashtbl.t
 end

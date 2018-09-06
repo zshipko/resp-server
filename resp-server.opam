@@ -12,17 +12,17 @@ available: [ ocaml-version >= "4.05.0"]
 
 depends:
 [
-    "jbuilder" {build}
+    "dune" {build}
     "hiredis-value" {>= "0.8"}
     "conduit-lwt-unix" {>= "1.0"}
 ]
 
 build:
 [
-    ["jbuilder" "build" "-p" name]
+    ["dune" "build" "-p" name "-j" jobs]
 ]
 
 build-test:
 [
-    ["jbuilder" "runtest"]
+    ["dune" "runtest"]
 ]

@@ -1,0 +1,10 @@
+(executables
+    (libraries resp-server)
+    (names test)
+    (modules test))
+
+(alias
+    (name runtest)
+    (package resp-server)
+    (deps test.exe)
+    (action (run %{dep:test.exe})))
