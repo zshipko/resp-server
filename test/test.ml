@@ -15,7 +15,7 @@ end
 
 module Server = Resp_server.Make(Resp_server.Auth.String)(Backend)
 
-let get (srv: Backend.t) (cli: Backend.client) (_: string) (args: Value.t array) =
+let get (srv: Backend.t) (_cli: Backend.client) (_: string) (args: Value.t array) =
   begin match args with
   | [| String key |] ->
     begin
@@ -27,7 +27,7 @@ let get (srv: Backend.t) (cli: Backend.client) (_: string) (args: Value.t array)
   end
   |> Lwt.return_some
 
-let del (srv: Backend.t) (cli: Backend.client) (_: string) (args: Value.t array) =
+let del (srv: Backend.t) (_cli: Backend.client) (_: string) (args: Value.t array) =
   begin match args with
   | [| String key |] ->
       Hashtbl.remove srv key;
@@ -36,7 +36,7 @@ let del (srv: Backend.t) (cli: Backend.client) (_: string) (args: Value.t array)
   end
   |> Lwt.return_some
 
-let set (srv: Backend.t) (cli: Backend.client) (_: string) (args: Value.t array) =
+let set (srv: Backend.t) (_cli: Backend.client) (_: string) (args: Value.t array) =
   begin match args with
   | [| String key; String value |] ->
       Hashtbl.replace srv key value;
@@ -45,7 +45,7 @@ let set (srv: Backend.t) (cli: Backend.client) (_: string) (args: Value.t array)
   end
   |> Lwt.return_some
 
-let done_ (srv: Backend.t) (cli: Backend.client) (_: string) (args: Value.t array) =
+let done_ (_srv: Backend.t) (_cli: Backend.client) (_: string) (_args: Value.t array) =
   print_endline "Test complete, closing server";
   exit 0
 
@@ -70,7 +70,7 @@ let () =
         Client.write client (Array [| Value.String "DONE" |]) >>= fun () ->
         exit 0
       in Lwt_main.run main
-  | n ->
+  | _ ->
       let ht = Hashtbl.create 16 in
       Lwt_main.run (
         Server.create ~commands (`TCP (`Port 1234)) ht >>= fun server ->
